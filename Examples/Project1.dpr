@@ -29,10 +29,7 @@ begin
       WriteLn(Format('   Channels count: %d', [fWaveFile.DataChunk.NumberOfChannel]));
       WriteLn(Format('   BitsPerSample: %d', [fWaveFile.FMTChunk.BitsPerSample]));
 
-
-      fWaveFile.DataChunk.ChannelData[0]
-
-
+      fWaveFile.DataChunk.ChannelData[0];
 
     finally
       FreeAndNil(fWaveFile);
