@@ -537,8 +537,8 @@ begin
         $20657563://cue .
           begin
             NewChunk:= TCueChunk.Create(IOStream);
-            if not NewChunk.Read() then 
-              raise Exception.Create('Error Message');      
+            if not NewChunk.Read() then
+              raise Exception.Create('Error read cue chunk');
             Add(NewChunk);
             FCuePoints.Free;
             FCuePoints:= TCueChunk(NewChunk).CuePointCollection;
