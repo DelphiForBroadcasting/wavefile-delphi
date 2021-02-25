@@ -12,6 +12,8 @@ uses
 var
   fWaveFile               : TWaveReader;
   lSourceFile             : string;
+  FFirstByte              : array of Byte;
+  FReadBytes              : integer;
 begin
   try
 
@@ -29,7 +31,11 @@ begin
       WriteLn(Format('   Channels count: %d', [fWaveFile.DataChunk.NumberOfChannel]));
       WriteLn(Format('   BitsPerSample: %d', [fWaveFile.FMTChunk.BitsPerSample]));
 
-      fWaveFile.DataChunk.ChannelData[0];
+      SetLength(FFirstByte, 64);
+      Move(fWaveFile.DataChunk.ChannelData[0]^, FFirstByte[0], 64);
+      FillChar(FFirstByte[0], 64, #0);
+      FReadBytes := fWaveFile.DataChunk.ReadData(@FFirstByte[0], 64);
+
 
     finally
       FreeAndNil(fWaveFile);
