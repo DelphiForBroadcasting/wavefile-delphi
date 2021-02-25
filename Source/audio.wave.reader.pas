@@ -289,6 +289,8 @@ type
     FDataOffset    : Int64;
     function Read(): boolean; virtual;
     function GetChannelData (Index: Integer): PByte;
+    procedure SetPosition(const Offset: Int64);
+    function GetPosition: Int64;
   public
     property ChannelData [Index: Integer]: PByte read GetChannelData;
     property NumberOfChannel: Integer read FChannelCount;
@@ -298,6 +300,8 @@ type
 
     constructor Create(IOStream: TBinaryReader; BitsPerSample, ChannelCount: Integer); overload;
     destructor Destroy;
+
+    property Possition: Int64 read GetPosition write  SetPosition;
     
   end;
 
@@ -676,8 +680,17 @@ begin
   if FDataOffset = 0 then
     Exit(0);
 
-  Self.FIOStream.BaseStream.Position := FDataOffset;
   result := Self.FIOStream.BaseStream.Read(Buffer^, Size);
+end;
+
+procedure TDataChunk.SetPosition(const Offset: Int64);
+begin
+  Self.FIOStream.BaseStream.Position := FDataOffset + Offset;;
+end;
+
+function TDataChunk.GetPosition: Int64;
+begin
+  result := Self.FIOStream.BaseStream.Position;
 end;
 
 function TDataChunk.Read(): boolean;
