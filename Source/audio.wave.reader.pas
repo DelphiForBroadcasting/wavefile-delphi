@@ -213,20 +213,18 @@ type
   THeaderChunk = class(TObject)
   private
     FIOStream          : TBinaryReader;
-    FOffset            : UInt64;      // box position in io_stream
+    FOffset            : Int64;      // box position in io_stream
     FIdentify          : TFourCC;
     FSize              : int64;
 
     function GetSize: int64;
     procedure SetSize(AValue: int64);
-
+    function Read(): boolean; virtual;
   public
     Constructor Create(IOStream: TBinaryReader); overload;
     Destructor  Destroy; override;
 
-    function Read(): boolean; virtual;
-
-    property Offset            : UInt64  read FOffset;
+    property Offset            : Int64  read FOffset;
     property Size              : int64 read GetSize write SetSize;
     property Identify          : TFourCC read FIdentify;
     property IOStream          : TBinaryReader read FIOStream;
@@ -235,14 +233,12 @@ type
   TChunk = class(THeaderChunk)
   private
     FOwner : TChunk;
+    function Read(): boolean; override;
   public
     constructor Create(Owner: TChunk; IOStream: TBinaryReader); overload;
     constructor Create(Identify: TFourCC; IOStream: TBinaryReader); overload;
     destructor Destroy;
-
     property Owner: TChunk read FOwner write FOwner;
-
-    function Read(): boolean; virtual;
   end;
 
 type
@@ -260,12 +256,14 @@ type
     FBitsPerSample: Word;
     FExtraBytes: Word;
 
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
     property CompressionCode: TCompressionCode read FCompressionCode;
     property SampleRate: Cardinal read FSampleRate;
+    property AverageSamplePerSecond: Cardinal read FAverageSamplePerSecond;
     property NumberOfChannels: Word read FNumberOfChannel;
     property BitsPerSample: Word read FBitsPerSample;
+    property BlockAlign: Word read FBlockAlign;
 
     constructor Create(IOStream: TBinaryReader); overload;
     destructor Destroy;
@@ -274,9 +272,9 @@ type
   TFactChunk = class(TChunk)
   private
     FBytesInChunk: TArray<Byte>;
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
-    property BytesInChunk: TArray<Byte> read FBytesInChunk;    
+    property BytesInChunk: TArray<Byte> read FBytesInChunk;
     constructor Create(IOStream: TBinaryReader); overload;
     destructor Destroy;
   end;
@@ -285,23 +283,32 @@ type
   private
     FBitsPerSample : Integer;
     FChannelCount  : Integer;
-    FChannelsData : array of PByte;
-    function Read(): boolean; virtual;
+    FChannelsData  : array of PByte;
+    FDataOffset    : Int64;
+    function Read(): boolean; override;
     function GetChannelData (Index: Integer): PByte;
+    procedure SetPosition(const Offset: Int64);
+    function GetPosition: Int64;
   public
     property ChannelData [Index: Integer]: PByte read GetChannelData;
     property NumberOfChannel: Integer read FChannelCount;
-    
+
+    function ReadData(Buffer: PByte; Size: Int64): Cardinal; overload;
+    function ReadData(Buffer: PByte; Offset, Size: Int64): Cardinal; overload;
+    function Eof(): boolean;
+
     constructor Create(IOStream: TBinaryReader; BitsPerSample, ChannelCount: Integer); overload;
     destructor Destroy;
-    
+
+    property Possition: Int64 read GetPosition write  SetPosition;
+
   end;
 
   TWavlChunk = class(TChunk)
   private
     BitsPerSample, ChannelCount: Integer;
     DataChunk: TDataChunk;
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
     constructor Create(IOStream: TBinaryReader; BitsPerSample, ChannelCount: Integer);
     destructor Destroy;
@@ -311,13 +318,13 @@ type
   TSlntChunk = class (TChunk)
   private
     FLength: Integer;
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
     property Length: Integer read FLength;
-    
+
     constructor Create(IOStream: TBinaryReader); overload;
     destructor Destroy;
-    
+
   end;
 
   TCuePoint = class(TObject)
@@ -338,7 +345,7 @@ type
     property ChunkStart: Cardinal read FChunkStart;
     property BlockStart: Cardinal read FBlockStart;
     property SampleOffset: Cardinal read FSampleOffset;
-        
+
     constructor Create(IOStream: TBinaryReader); overload;
     destructor Destroy;
 
@@ -351,18 +358,18 @@ type
   TCueChunk = class(TChunk)
   private
     FCuePointCollection: TCueCollection;
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
     property CuePointCollection: TCueCollection read FCuePointCollection;
-    
+
     constructor Create(IOStream: TBinaryReader); overload;
     destructor Destroy;
-    
+
   end;
 
   TOtherChunks = class (TChunk)
   private
-    function Read(): boolean; virtual;
+    function Read(): boolean; override;
   public
     constructor Create(IOStream: TBinaryReader; Identify: TFourCC); overload;
     destructor Destroy;
@@ -370,20 +377,32 @@ type
 
   TWaveReader = class(TChunkCollection)
   private
-    FAllSignals: TArray<LongWord>;
+    FIOStream : TBinaryReader;
     FCuePoints: TCueCollection;
     function GetFMTChunk: TFMTChunk;
     function GetChunkByID(Identify: cardinal): TChunkCollection;
     function GetDataChunk: TDataChunk;
+
+    function GetSampleRate: Cardinal;
+    function GetAverageSamplePerSecond: Cardinal;
+    function GetBlockAlign: Word;
+    function GetBitsPerSample: Word;
+    function GetNumberOfChannel: Integer;
   public
     property ChunkByID [ChunkID: cardinal]: TChunkCollection read GetChunkByID;
     property FMTChunk: TFMTChunk read GetFMTChunk;
     property DataChunk: TDataChunk read GetDataChunk;
     property CuePoints: TCueCollection read FCuePoints;
 
+    property BitsPerSample: Word read GetBitsPerSample;
+    property NumberOfChannel: Integer read GetNumberOfChannel;
+    property SampleRate: Cardinal read GetSampleRate;
+    property AverageSamplePerSecond: Cardinal read GetAverageSamplePerSecond;
+    property BlockAlign: Word read GetBlockAlign;
+
     constructor Create (FileName: String);
     destructor Destroy;
-    
+
   end;
 
 implementation
@@ -393,7 +412,7 @@ constructor THeaderChunk.Create(IOStream: TBinaryReader);
 begin
   inherited Create;
   FIOStream := IOStream;
-  
+
   FOffset := 0;
   FSize := 0;
   FIdentify.Int32 := 0;
@@ -412,7 +431,7 @@ begin
   begin
     FOffset := FIOStream.BaseStream.Position;
     FIdentify.Int32 := FIOStream.ReadCardinal;
-  end else 
+  end else
   begin
     FIOStream.BaseStream.Position := FIOStream.BaseStream.Position - 4;
     FOffset := FIOStream.BaseStream.Position;
@@ -476,7 +495,7 @@ var
 
 begin
   result := inherited Read;
-  
+
   FCompressionCode:= TCompressionCode(IOStream.ReadWord);
   FNumberOfChannel:= IOStream.ReadWord;
   FSampleRate:= IOStream.ReadCardinal;
@@ -485,7 +504,7 @@ begin
   FBitsPerSample:= IOStream.ReadWord;
   if not (FBitsPerSample in [8, 16, 24, 32]) then
     raise Exception.Create ('Invalid SignificantBitPerSample!');
-    
+
   if CompressionCode <> TCompressionCode.WAVE_FORMAT_PCM then
   begin
     FExtraBytes:= IOStream.ReadWord;
@@ -494,94 +513,115 @@ begin
   end;
 
   // skip footer
-  if IOStream.BaseStream.Position <> self.Offset + self.Size + SizeOf(self.Size)  then
-    IOStream.BaseStream.Position  := self.Offset + self.Size + SizeOf(self.Size);
+  if IOStream.BaseStream.Position <> Self.Offset + self.Size + SizeOf(self.Size)  then
+    IOStream.BaseStream.Position  := Self.Offset + self.Size + SizeOf(self.Size);
 end;
 
 (* TWaveReader *)
 constructor TWaveReader.Create(FileName: String);
 var
-  IOStream    : TBinaryReader;
   FileSize    : Cardinal;
   Identify    : TFourCC;
   NewChunk    : TChunk;
 begin
   inherited Create;
 
-  IOStream:= TBinaryReader.Create(FileName);
-  try
-    FCuePoints:= TCueCollection.Create;
+  FIOStream:= TBinaryReader.Create(FileName);
+  FCuePoints:= TCueCollection.Create;
 
-    Identify.Int32 := IOStream.ReadCardinal;
-    if not SameText(Format('%.4s', [PAnsiChar(@Identify.Int32)]), 'RIFF') then
-      raise Exception.Create('Error read RIFF header');
+  Identify.Int32 := FIOStream.ReadCardinal;
+  if not SameText(Format('%.4s', [PAnsiChar(@Identify.Int32)]), 'RIFF') then
+    raise Exception.Create('Error read RIFF header');
 
-    FileSize:= IOStream.ReadCardinal;
-    if FileSize + 8 <> IOStream.BaseStream.Size then
-      raise Exception.Create ('Invalid Size');
+  FileSize:= FIOStream.ReadCardinal;
+  if FileSize + 8 <> FIOStream.BaseStream.Size then
+    raise Exception.Create ('Invalid Size');
 
-    Identify.Int32 := IOStream.ReadCardinal;
-    if not SameText(Format('%.4s', [PAnsiChar(@Identify.Int32)]), 'WAVE') then
-      raise Exception.Create('Error read WAVE header');
-  
-    while IOStream.BaseStream.Position< IOStream.BaseStream.Size do
-    begin
-      Identify.Int32 := IOStream.ReadCardinal;
-      case Identify.Int32 of
-        $20746D66: //fmt .
-          begin
-            Self.Add(TFMTChunk.Create(IOStream));
-            if not assigned(Self.FMTChunk) or not Self.FMTChunk.Read then
-              raise Exception.Create('Error Message');
-          end;
-        $20657563://cue .
-          begin
-            NewChunk:= TCueChunk.Create(IOStream);
-            if not NewChunk.Read() then
-              raise Exception.Create('Error read cue chunk');
-            Add(NewChunk);
-            FCuePoints.Free;
-            FCuePoints:= TCueChunk(NewChunk).CuePointCollection;
-          end;
-        $66616374://fact.
-          begin
-            NewChunk:= TFactChunk.Create;
-            if not NewChunk.Read() then
-              raise Exception.Create('Error Message');      
-            Add(NewChunk);
-          end;
-        $61746164://data.
-          begin
-            NewChunk:= TDataChunk.Create(IOStream, FMTChunk.BitsPerSample, FMTChunk.NumberOfChannels);
-            if not TDataChunk(NewChunk).Read() then
-              raise Exception.Create('Error Message');            
-            Add(NewChunk);
-          end;
-        $5761766c://Wavl.
-          begin
-            NewChunk:= TWavlChunk.Create(IOStream, FMTChunk.BitsPerSample, FMTChunk.FNumberOfChannel);
-            if not NewChunk.Read() then 
-              raise Exception.Create('Error Message');
-            Add(NewChunk);
-          end;
-        else
-          begin
-            NewChunk:= TOtherChunks.Create(IOStream, Identify);
-            if not NewChunk.Read() then 
-              raise Exception.Create('Error Message');      
-            Add(NewChunk);
-          end;
-      end;
+  Identify.Int32 := FIOStream.ReadCardinal;
+  if not SameText(Format('%.4s', [PAnsiChar(@Identify.Int32)]), 'WAVE') then
+    raise Exception.Create('Error read WAVE header');
+
+  while FIOStream.BaseStream.Position< FIOStream.BaseStream.Size do
+  begin
+    Identify.Int32 := FIOStream.ReadCardinal;
+    case Identify.Int32 of
+      $20746D66: //fmt .
+        begin
+          Self.Add(TFMTChunk.Create(FIOStream));
+          if not assigned(Self.FMTChunk) or not Self.FMTChunk.Read then
+            raise Exception.Create('Error Message');
+        end;
+      $20657563://cue .
+        begin
+          NewChunk:= TCueChunk.Create(FIOStream);
+          if not NewChunk.Read() then
+            raise Exception.Create('Error read cue chunk');
+          Add(NewChunk);
+          FCuePoints.Free;
+          FCuePoints:= TCueChunk(NewChunk).CuePointCollection;
+        end;
+      $66616374://fact.
+        begin
+          NewChunk:= TFactChunk.Create;
+          if not NewChunk.Read() then
+            raise Exception.Create('Error Message');
+          Add(NewChunk);
+        end;
+      $61746164://data.
+        begin
+          NewChunk:= TDataChunk.Create(FIOStream, FMTChunk.BitsPerSample, FMTChunk.NumberOfChannels);
+          if not TDataChunk(NewChunk).Read() then
+            raise Exception.Create('Error Message');
+          Add(NewChunk);
+        end;
+      $5761766c://Wavl.
+        begin
+          NewChunk:= TWavlChunk.Create(FIOStream, FMTChunk.BitsPerSample, FMTChunk.FNumberOfChannel);
+          if not NewChunk.Read() then
+            raise Exception.Create('Error Message');
+          Add(NewChunk);
+        end;
+      else
+        begin
+          NewChunk:= TOtherChunks.Create(FIOStream, Identify);
+          if not NewChunk.Read() then
+            raise Exception.Create('Error Message');
+          Add(NewChunk);
+        end;
     end;
-  finally
-    FreeAndNil(IOStream);
   end;
 end;
 
 destructor TWaveReader.Destroy;
 begin
+  FreeAndNil(FIOStream);
   FreeAndNil(FCuePoints);
   inherited;
+end;
+
+function TWaveReader.GetBlockAlign: Word;
+begin
+  result := FMTChunk.BlockAlign;
+end;
+
+function TWaveReader.GetAverageSamplePerSecond: Cardinal;
+begin
+  result := FMTChunk.AverageSamplePerSecond;
+end;
+
+function TWaveReader.GetSampleRate: Cardinal;
+begin
+  result := FMTChunk.SampleRate;
+end;
+
+function TWaveReader.GetBitsPerSample: Word;
+begin
+  result := FMTChunk.BitsPerSample;
+end;
+
+function TWaveReader.GetNumberOfChannel: Integer;
+begin
+  result := FMTChunk.NumberOfChannels;
 end;
 
 function TWaveReader.GetChunkByID(Identify: cardinal): TChunkCollection;
@@ -661,6 +701,44 @@ begin
   Result:= FChannelsData[Index];
 end;
 
+function TDataChunk.Eof(): boolean;
+begin
+  result := (Self.FIOStream.BaseStream.Position >= Self.GetSize() + FDataOffset);
+end;
+
+function TDataChunk.ReadData(Buffer: PByte; Offset, Size: Int64): Cardinal;
+begin
+  if FDataOffset = 0 then
+    Exit(0);
+
+  if ((Self.FIOStream.BaseStream.Position - (FDataOffset + Offset)) + Size) > Self.GetSize() then
+    Size := Size - (((Self.FIOStream.BaseStream.Position - (FDataOffset + Offset)) + Size) - Self.GetSize());
+
+  Self.FIOStream.BaseStream.Position := FDataOffset + Offset;
+  result := Self.FIOStream.BaseStream.Read(Buffer^, Size);
+end;
+
+function TDataChunk.ReadData(Buffer: PByte; Size: Int64): Cardinal;
+begin
+  if FDataOffset = 0 then
+    Exit(0);
+
+  if ((Self.FIOStream.BaseStream.Position - FDataOffset) + Size) >= Self.GetSize() then
+     Size := Size - (((Self.FIOStream.BaseStream.Position - FDataOffset) + Size) - Self.GetSize());
+
+  result := Self.FIOStream.BaseStream.Read(Buffer^, Size);
+end;
+
+procedure TDataChunk.SetPosition(const Offset: Int64);
+begin
+  Self.FIOStream.BaseStream.Position := FDataOffset + Offset;
+end;
+
+function TDataChunk.GetPosition: Int64;
+begin
+  result := Self.FIOStream.BaseStream.Position - FDataOffset;
+end;
+
 function TDataChunk.Read(): boolean;
 var
   i, j, k: Integer;
@@ -668,15 +746,17 @@ var
   Ptr : PByte;
   SampleCount: Integer;
   EachSampleSize : integer;
-  LValueInt : integer;
   LChannelsData : array of PByte;
 begin
-  result := inherited Read;
+  inherited Read;
 
   //if (Self.FSize) mod (FChannelCount * FBitsPerSample) <> 0 then
   //  raise Exception.Create ('Invalid Data Size in DataChunk!');
 
-  SampleCount:= (Self.FSize) div (FChannelCount * (FBitsPerSample div 8));
+  // set data offset
+  FDataOffset := IOStream.BaseStream.Position;
+
+  SampleCount := (Self.FSize) div (FChannelCount * (FBitsPerSample div 8));
 
   SetLength(FChannelsData, FChannelCount);
   SetLength(LChannelsData, FChannelCount);
@@ -834,6 +914,7 @@ begin
   FChunkStart:= FIOStream.ReadCardinal;
   FBlockStart:= FIOStream.ReadCardinal;
   FSampleOffset:= FIOStream.ReadCardinal;
+  result := true;
 end;
 
 { TCueChunk }
@@ -886,21 +967,19 @@ end;
 function TOtherChunks.Read(): boolean;
 const
 {$J+}
-  Buffer: array of Integer= nil;
+  Buffer: array of Integer = nil;
 {$J-}
-var
-  i: Integer;
 
 begin
   result := inherited Read;
 
-  if Buffer= nil then
+  if Buffer = nil then
     SetLength (Buffer, Self.FSize + 1)
   else if Length (Buffer)< Self.FSize then
     SetLength (Buffer, Self.FSize+ 1);
 
 //  for i:= 1 to FDataSize do
-    IOStream.BaseStream.Read(Buffer, Self.FSize);
+    IOStream.BaseStream.Read(Buffer[0], Self.FSize);
 end;
 
 end.

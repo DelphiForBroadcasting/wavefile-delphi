@@ -26,8 +26,9 @@ begin
     try
       WriteLn(Format('* Read %s: ', [lSourceFile]));
       WriteLn(Format('   Data size: %d', [fWaveFile.DataChunk.Size div fWaveFile.DataChunk.NumberOfChannel]));
-      WriteLn(Format('   Channels count: %d', [fWaveFile.DataChunk.NumberOfChannel]));
-      WriteLn(Format('   BitsPerSample: %d', [fWaveFile.FMTChunk.BitsPerSample]));
+      WriteLn(Format('   Channels count: %d', [fWaveFile.NumberOfChannel]));
+      WriteLn(Format('   BitsPerSample: %d', [fWaveFile.BitsPerSample]));
+      WriteLn(Format('   SampleRate: %d', [fWaveFile.SampleRate]));
 
       fWaveFile.DataChunk.ChannelData[0];
 
